@@ -1,48 +1,52 @@
 const express = require("express");
-const request = require("request");
-const geoip = require("geoip-lite");
-
+const axios = require("axios");
 const app = express();
+const port = 3000; // Setting port to 3000 explicitly
 
-app.get("/api/hello", (req, res) => {
-  let visitorName = req.query.visitor_name;
+app.get("/api/hello", async (req, res) => {
+  let visitorName = req.query.visitor_name || "Guest";
+  visitorName = visitorName.replace(/['"]/g, "").trim();
+  let clientIp = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
 
-  let clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-
-  if (clientIp === "::1" || clientIp === "127.0.0.1") {
-    clientIp = "127.0.0.1";
-  } else if (clientIp.includes("::ffff:")) {
-    clientIp = clientIp.split("::ffff:")[1];
+  // Adjust IP address format if needed (strip IPv6 prefix)
+  if (clientIp.includes(":")) {
+    clientIp = clientIp.split(":").pop();
   }
 
-  // Get location from IP address
-  let city = "new york";
-  let geo = geoip.lookup(clientIp);
-  let namedCity = geo ? geo.city : "Unknown";
+  // Fallback IP for local testing
+  if (clientIp === "::1" || clientIp === "127.0.0.1") {
+    clientIp = "8.8.8.8"; // Google's public DNS server IP for testing
+  }
+  try {
+    const locationResponse = await axios.get(
+      `https://ipapi.co/${clientIp}/json/`
+    );
+    const { city, latitude, longitude } = locationResponse.data;
 
-  const apiKey = "d84f657fe14d7afad14be2cdc5d82ee0";
-  let weatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${namedCity}&appid=${apiKey}&units=metric`;
-
-  request(weatherUrl, (error, response, body) => {
-    if (error) {
-      return res.status(500).send("Error fetching weather data.");
+    if (!city || !latitude || !longitude) {
+      throw new Error("Incomplete location data");
     }
 
-    let weatherData = JSON.parse(body);
-    if (response.statusCode === 200) {
-      let temperature = weatherData.main.temp;
-      res.json({
-        client_ip: clientIp,
-        location: city,
-        greeting: `Hello, ${visitorName}!, the temperature is ${temperature} degrees Celsius in ${city}`,
-      });
-    } else {
-      res.status(500).send("Error fetching weather data.");
+    const weatherResponse = await axios.get(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`
+    );
+    const temperature = weatherResponse.data.current_weather.temperature;
+
+    res.json({
+      client_ip: clientIp,
+      location: city,
+      greeting: `Hello, ${visitorName}!, the temperature is ${temperature} degrees Celsius in ${city}`,
+    });
+  } catch (error) {
+    return res.send(error);
+    console.error("Error fetching data:", error.message);
+    if (error.response) {
+      console.error("Response data:", error.response.data);
     }
-  });
+    res.status(500).json({ error: "Unable to fetch data" });
+  }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(port, "127.0.0.1", () => {
+  console.log(`Server is running on http://127.0.0.1:${port}`);
 });

@@ -4,19 +4,15 @@ const app = express();
 const port = 3000; // Setting port to 3000 explicitly
 
 app.get("/api/hello", async (req, res) => {
-  let visitorName = req.query.visitor_name || "Guest";
-  visitorName = visitorName.replace(/['"]/g, "").trim();
+  let visitorName = (req.query.visitor_name || "Guest")
+    .replace(/['"]/g, "")
+    .trim();
   let clientIp = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
 
-  // Adjust IP address format if needed (strip IPv6 prefix)
   if (clientIp.includes(":")) {
     clientIp = clientIp.split(":").pop();
   }
 
-  // Fallback IP for local testing
-  if (clientIp === "::1" || clientIp === "127.0.0.1") {
-    clientIp = "8.8.8.8"; // Google's public DNS server IP for testing
-  }
   try {
     const locationResponse = await axios.get(
       `https://ipapi.co/${clientIp}/json/`
@@ -28,7 +24,14 @@ app.get("/api/hello", async (req, res) => {
     }
 
     const weatherResponse = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`
+      `https://api.open-meteo.com/v1/forecast`,
+      {
+        params: {
+          latitude,
+          longitude,
+          current_weather: true,
+        },
+      }
     );
     const temperature = weatherResponse.data.current_weather.temperature;
 
@@ -38,7 +41,6 @@ app.get("/api/hello", async (req, res) => {
       greeting: `Hello, ${visitorName}!, the temperature is ${temperature} degrees Celsius in ${city}`,
     });
   } catch (error) {
-    return res.send(error);
     console.error("Error fetching data:", error.message);
     if (error.response) {
       console.error("Response data:", error.response.data);
